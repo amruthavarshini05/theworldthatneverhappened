@@ -6,6 +6,8 @@ A MySQL relational database named `covid_economic_impact_v2` was created to stor
 
 The database contains **12 tables in total**: six staging tables used to preserve the imported source datasets and six tables forming the final relational model. The staging tables retain the original imported data, while the relational tables organize the information into a structure suitable for analysis and querying.
 
+The six staging tables are `stg_gdp_growth`, `stg_covid_health`, `stg_policy`, `stg_vulnerability`, `stg_imf_forecast`, and `stg_imf_forecast_long`. They preserve the imported source data, while the six relational tables provide the structured model used for analysis.
+
 ## 2. Table Structure and Attributes
 
 The final relational model consists of the following six tables:
@@ -20,6 +22,8 @@ The final relational model consists of the following six tables:
 | `vulnerability` | `country_code`, `oil_rents_pct_gdp`, `services_value_added_pct_gdp`, `tourism_receipts_pct_exports`, `trade_pct_gdp` | `country_code` |
 
 The database uses appropriate data types, including `CHAR(3)` for country codes, `SMALLINT` for years, `DATE` for daily observations, and `DOUBLE` for numerical indicators.
+
+In addition, `countries.country_name` has a `UNIQUE` constraint and is defined as `NOT NULL`, preventing duplicate country names and ensuring that every country record has a name. The primary and foreign-key constraints are used to maintain record uniqueness and referential integrity.
 
 ## 3. Primary Keys
 
@@ -49,6 +53,8 @@ The `countries` table has a **one-to-many relationship** with `gdp_annual`, `imf
 The relationship between `countries` and `vulnerability` is one-to-one in the current design, since `vulnerability.country_code` is its primary key and therefore permits only one vulnerability record per country.
 
 Foreign-key constraints maintain referential integrity by ensuring that records in the analytical tables reference valid country codes.
+
+The relationship between `countries` and `vulnerability` is one-to-zero-or-one at the schema level. Because `vulnerability.country_code` is its primary key and a foreign key referencing `countries`, each country can have at most one vulnerability record. In the current dataset, all 11 countries have a corresponding vulnerability record.
 
 ## 5. Justification of the Architecture
 
