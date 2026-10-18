@@ -1,0 +1,71 @@
+# Database Architecture and Relational Design
+
+## 1. Overview
+
+A MySQL relational database named `covid_economic_impact_v2` was created to store and organize the datasets used in the study of the economic impact of COVID-19.
+
+The database contains **12 tables in total**: six staging tables used to preserve the imported source datasets and six tables forming the final relational model. The staging tables retain the original imported data, while the relational tables organize the information into a structure suitable for analysis and querying.
+
+## 2. Table Structure and Attributes
+
+The final relational model consists of the following six tables:
+
+| Table | Attributes | Primary Key |
+|---|---|---|
+| `countries` | `country_code`, `country_name` | `country_code` |
+| `gdp_annual` | `country_code`, `year`, `gdp_growth_pct` | `country_code`, `year` |
+| `imf_forecast` | `country_code`, `year`, `imf_gdp_growth_pct` | `country_code`, `year` |
+| `covid_daily` | `country_code`, `date`, `new_cases_smoothed_per_million`, `new_deaths_smoothed_per_million`, `people_fully_vaccinated_per_hundred`, `excess_mortality` | `country_code`, `date` |
+| `policy_daily` | `country_code`, `date`, `school_closing`, `workplace_closing`, `cancel_public_events`, `restrictions_gatherings`, `close_public_transport`, `stay_home_requirements`, `restrictions_internal_movement`, `international_travel_controls`, `income_support`, `debt_contract_relief`, `stringency_index`, `economic_support_index` | `country_code`, `date` |
+| `vulnerability` | `country_code`, `oil_rents_pct_gdp`, `services_value_added_pct_gdp`, `tourism_receipts_pct_exports`, `trade_pct_gdp` | `country_code` |
+
+The database uses appropriate data types, including `CHAR(3)` for country codes, `SMALLINT` for years, `DATE` for daily observations, and `DOUBLE` for numerical indicators.
+
+## 3. Primary Keys
+
+Primary keys uniquely identify records and prevent duplicate entries.
+
+- **`countries`:** `country_code` uniquely identifies each country.
+- **`gdp_annual` and `imf_forecast`:** the composite key `(country_code, year)` ensures that each country has at most one record per year in each table.
+- **`covid_daily` and `policy_daily`:** the composite key `(country_code, date)` ensures that each country has at most one record per day in each table.
+- **`vulnerability`:** `country_code` identifies each country's economic vulnerability indicators.
+
+Composite keys are appropriate when a single attribute cannot uniquely identify an observation. For example, a year alone cannot uniquely identify a GDP record because multiple countries have observations for the same year.
+
+## 4. Foreign Keys and Relationships
+
+Each of the five analytical tables contains a foreign key referencing `countries.country_code`.
+
+| Child Table | Foreign Key | Referenced Table |
+|---|---|---|
+| `gdp_annual` | `country_code` | `countries.country_code` |
+| `imf_forecast` | `country_code` | `countries.country_code` |
+| `covid_daily` | `country_code` | `countries.country_code` |
+| `policy_daily` | `country_code` | `countries.country_code` |
+| `vulnerability` | `country_code` | `countries.country_code` |
+
+The `countries` table has a **one-to-many relationship** with `gdp_annual`, `imf_forecast`, `covid_daily`, and `policy_daily`. A country can have multiple annual observations or daily observations, while each observation refers to one country.
+
+The relationship between `countries` and `vulnerability` is one-to-one in the current design, since `vulnerability.country_code` is its primary key and therefore permits only one vulnerability record per country.
+
+Foreign-key constraints maintain referential integrity by ensuring that records in the analytical tables reference valid country codes.
+
+## 5. Justification of the Architecture
+
+The database architecture was designed to support the integration and analysis of multiple datasets with different levels of detail.
+
+1. **Separation by data granularity:** Annual GDP growth and IMF forecasts are stored separately from daily COVID-19 and policy observations. Country-level vulnerability indicators are stored independently because they do not require daily or annual records.
+2. **Reduced duplication:** Country names and country codes are maintained in a central `countries` table rather than repeatedly storing country names in every analytical table.
+3. **Data integrity:** Primary keys prevent duplicate observations, while foreign keys enforce valid relationships between countries and their associated data.
+4. **Preservation of source data:** The six staging tables retain the imported datasets, providing a reference for checking and transforming the original data.
+5. **Analytical flexibility:** The related tables can be joined to compare GDP growth forecasts with recorded growth, and to examine daily COVID-19 indicators alongside government policy measures.
+
+## 6. Validation
+
+The database was validated by checking table row counts, primary-key definitions, foreign-key constraints, and joins between related tables.
+
+The final relational tables contain 11 countries, 143 annual GDP observations, 66 IMF forecast observations, 12,056 daily COVID-19 records, 12,056 daily policy records, and 11 country-level vulnerability records.
+
+A join between the GDP and IMF forecast tables returned matching records for 11 countries across 2020–2022. A second join successfully combined daily COVID-19 and policy data for Spain from 1–7 March 2020. The foreign-key and primary-key checks also confirmed the expected constraints.
+
+These checks demonstrate that the database is structured to support relational queries across the datasets used in the study.
