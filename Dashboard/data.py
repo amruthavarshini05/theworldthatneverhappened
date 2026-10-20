@@ -5,6 +5,7 @@ the same table.
 """
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 # --------------------------------------------------------------------------
@@ -226,3 +227,108 @@ def load_recovery_data() -> pd.DataFrame:
     assert not no_nan.isna().any().any(), "unexpected NaN in recovery table"
     assert d.loc[d["year"] == 2019, "rank_output_gap_in_year_1_worst"].isna().all()
     return d
+
+
+# ==========================================================================
+# Chapter 4: structural vulnerabilities (World Bank 2019) vs forecast shortfall
+# ==========================================================================
+VULN_FILE = "chapter4_vulnerability_dataset.csv"
+
+# column -> label shown on screen
+VULN_VARS = {
+    "tourism_receipts_pct_exports": "Tourism receipts (% of exports)",
+    "trade_pct_gdp": "Trade openness (% of GDP)",
+    "services_value_added_pct_gdp": "Services value added (% of GDP)",
+    "oil_rents_pct_gdp": "Oil rents (% of GDP)",
+}
+INCOME_COLOURS = {"High income": "#2b6cb0", "Upper-middle income": "#dd8452", "Lower-middle income": "#c44e52"}
+SHORTFALL_COLS = ["shortfall_2019", "shortfall_2020", "shortfall_2021", "shortfall_2022"]
+TRADE_OPEN_THRESHOLD = 60.0   # % of GDP: "very open" cut-off used in the group comparison
+
+
+def load_vulnerability() -> pd.DataFrame:
+    """One row per country (11): 2019 vulnerabilities + shortfalls + 2020 context (team's export).
+
+    Tourism receipts are genuinely missing for Spain, Sweden and China: they stay NaN
+    (never 0, never filled).
+    """
+    v = pd.read_csv(DATA_DIR / VULN_FILE)
+    v["country"] = v["ISO3"].map(DISPLAY_NAMES)          # one display name everywhere
+    assert len(v) == 11 and v["ISO3"].nunique() == 11
+    assert v["tourism_receipts_pct_exports"].isna().sum() == 3
+    assert v[[c for c in v.columns if c not in ("tourism_receipts_pct_exports",)]].notna().all().all()
+    return v
+
+
+def spearman_table(v: pd.DataFrame, target: str, variables=None) -> pd.DataFrame:
+    """Spearman rho (+ p-value) and Pearson r of each vulnerability with `target`.
+    Rows with a missing value are dropped for that variable only (tourism: n = 8)."""
+    from scipy import stats
+    rows = []
+    for col in (variables or list(VULN_VARS)):
+        s = v[[col, target]].dropna()
+        rho, p = stats.spearmanr(s[col], s[target])
+        r, _ = stats.pearsonr(s[col], s[target])
+        rows.append({"variable": col, "label": VULN_VARS.get(col, col), "n": len(s),
+                     "spearman_rho": rho, "p_value": p, "pearson_r": r})
+    return pd.DataFrame(rows).set_index("variable")
+
+
+def leave_one_out(v: pd.DataFrame, target: str) -> pd.DataFrame:
+    """Spearman rho recomputed after removing each country in turn.
+    Rows = removed country, columns = vulnerability variables."""
+    out = {}
+    for col in VULN_VARS:
+        s = v[["country", col, target]].dropna().set_index("country")
+        out[col] = pd.Series({c: s.drop(c)[col].corr(s.drop(c)[target], method="spearman") for c in s.index})
+    return pd.DataFrame(out)
+
+
+def partial_spearman(v: pd.DataFrame, x: str, y: str, z: str):
+    """Partial Spearman correlation of x and y controlling for z (on ranks). Illustrative, n <= 11."""
+    s = v[[x, y, z]].dropna().rank()
+    rx = s[x] - np.polyval(np.polyfit(s[z], s[x], 1), s[z])
+    ry = s[y] - np.polyval(np.polyfit(s[z], s[y], 1), s[z])
+    return float(np.corrcoef(rx, ry)[0, 1]), len(s)
+
+
+def context_correlations(v: pd.DataFrame, target="shortfall_2020") -> pd.Series:
+    cols = ["deaths_per_million_2020", "stringency_2020", "travel_controls_2020", "econ_support_2020",
+            "tourism_receipts_pct_exports", "trade_pct_gdp"]
+    return v[cols + [target]].corr(method="spearman")[target].drop(target)
+
+
+GROUPINGS = {
+    "income_group": "Income group",
+    "tourism_group": "Tourism dependence",
+    "trade_group": "Trade openness",
+    "services_group": "Services share",
+}
+GROUP_TARGETS = {
+    "shortfall_2020": "Shortfall 2020 (pp)", "shortfall_2021": "Shortfall 2021 (pp)",
+    "shortfall_2022": "Shortfall 2022 (pp)", "level_gap_2022": "Output gap end-2022 (%)",
+}
+
+
+def add_groups(v: pd.DataFrame) -> pd.DataFrame:
+    """Add the group columns (median splits for tourism and services, 60% of GDP for trade)."""
+    g = v.copy()
+    t = g["tourism_receipts_pct_exports"]
+    g["tourism_group"] = np.where(t.isna(), "Data missing", np.where(t >= t.median(), "High tourism", "Low tourism"))
+    g["trade_group"] = np.where(g["trade_pct_gdp"] >= TRADE_OPEN_THRESHOLD,
+                                f"Very open (>= {TRADE_OPEN_THRESHOLD:.0f}% of GDP)",
+                                f"Less open (< {TRADE_OPEN_THRESHOLD:.0f}% of GDP)")
+    s = g["services_value_added_pct_gdp"]
+    g["services_group"] = np.where(s >= s.median(), "High services", "Low services")
+    return g
+
+
+def group_summary(v: pd.DataFrame) -> pd.DataFrame:
+    """Mean of each target by group, for every grouping (long table)."""
+    g = add_groups(v)
+    parts = {}
+    for col in GROUPINGS:
+        m = g.groupby(col)[list(GROUP_TARGETS)].mean()
+        m["n"] = g.groupby(col).size()
+        parts[GROUPINGS[col]] = m.rename(columns=GROUP_TARGETS)
+    return pd.concat(parts, names=["grouping", "group"])
